@@ -1,0 +1,327 @@
+# OpenPencil Cloud for Runtipi.
+#
+# Browsers upload and download project files straight from object storage, at the same address
+# the server uses for it. So the nginx front door (the main service) serves both the app and the
+# storage bucket from one origin: /openpencil-objects/* goes to SeaweedFS and /mailpit/* to the
+# built-in inbox. Everything else goes to the OpenPencil server.
+# The server reaches storage through that public address too. That's why
+# object_storage.endpoint equals public_url.
+#
+# openpencil-config renders the TOML, SeaweedFS and nginx configs into ${APP_DATA_DIR}/config on
+# every start, from the app's settings. Changing the port, domain or sign-up mode in Runtipi then
+# updates them on the next restart. Secrets reach OpenPencil as environment variables and
+# never go into its TOML.
+x-runtipi:
+  schema_version: 2
+  overrides: []
+
+services:
+  openpencil:
+    image: nginx:1.30.6-alpine
+    depends_on:
+      openpencil-config:
+        condition: service_completed_successfully
+      openpencil-storage:
+        condition: service_healthy
+      openpencil-mail:
+        condition: service_started
+      # Not service_healthy: the server's /ready check reaches storage through this proxy.
+      openpencil-server:
+        condition: service_started
+    volumes:
+      - ${APP_DATA_DIR}/config/nginx:/etc/nginx/conf.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    x-runtipi:
+      is_main: true
+      internal_port: 8080
+
+  openpencil-server:
+    image: ghcr.io/open-pencil/cloud:0.17.0-beta.4
+    depends_on:
+      openpencil-config:
+        condition: service_completed_successfully
+      openpencil-db:
+        condition: service_healthy
+      openpencil-bucket:
+        condition: service_completed_successfully
+    environment:
+      OPENPENCIL_CLOUD_CONFIG: /etc/openpencil/openpencil-cloud.toml
+      DATABASE_URL: postgresql://openpencil:${OPENPENCIL_DB_PASSWORD}@openpencil-db:5432/openpencil
+      BETTER_AUTH_SECRET: ${OPENPENCIL_AUTH_SECRET}
+      S3_ACCESS_KEY_ID: ${OPENPENCIL_S3_ACCESS_KEY}
+      S3_SECRET_ACCESS_KEY: ${OPENPENCIL_S3_SECRET_KEY}
+    extra_hosts:
+      # When the app is exposed on a domain, reach it through this host's Traefik directly,
+      # without depending on hairpin NAT or split DNS.
+      - "${APP_HOST}:host-gateway"
+    volumes:
+      - ${APP_DATA_DIR}/config/openpencil:/etc/openpencil:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  openpencil-db:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: openpencil
+      POSTGRES_USER: openpencil
+      POSTGRES_PASSWORD: ${OPENPENCIL_DB_PASSWORD}
+    volumes:
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openpencil -d openpencil"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  openpencil-storage:
+    image: chrislusf/seaweedfs:4.41
+    depends_on:
+      openpencil-config:
+        condition: service_completed_successfully
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.port=8333
+      - -s3.config=/etc/seaweedfs/s3.json
+    volumes:
+      - ${APP_DATA_DIR}/data/seaweedfs:/data
+      - ${APP_DATA_DIR}/config/seaweedfs:/etc/seaweedfs:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8333"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: creates the bucket if it doesn't exist yet, then exits.
+  openpencil-bucket:
+    image: amazon/aws-cli:2.27.49
+    restart: "no"
+    depends_on:
+      openpencil-storage:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${OPENPENCIL_S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${OPENPENCIL_S3_SECRET_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects
+        || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
+
+  # Catches sign-up and password-reset email; read it at <app address>/mailpit/ (user: mail).
+  openpencil-mail:
+    image: axllent/mailpit:v1.31.0
+    environment:
+      MP_WEBROOT: /mailpit/
+      MP_UI_AUTH: "mail:${OPENPENCIL_MAILPIT_PASSWORD}"
+      MP_MAX_MESSAGES: "500"
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_SMTP_DISABLE_RDNS: "true"
+
+  # One-shot: writes the config files from the app's settings, then exits.
+  openpencil-config:
+    image: busybox:1.37.0
+    restart: "no"
+    environment:
+      PUBLIC_URL: ${APP_PROTOCOL:-http}://${APP_DOMAIN:-${INTERNAL_IP}:${APP_PORT}}
+      ENROLLMENT_MODE: ${OPENPENCIL_ENROLLMENT:-open}
+      S3_ACCESS_KEY: ${OPENPENCIL_S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${OPENPENCIL_S3_SECRET_KEY}
+    volumes:
+      - ${APP_DATA_DIR}/config:/config
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        PUBLIC_URL="$${PUBLIC_URL%/}"
+        case "$$PUBLIC_URL" in
+          http://?*|https://?*) ;;
+          *) echo "Cannot work out the app's address (got '$$PUBLIC_URL')" >&2; exit 1 ;;
+        esac
+        case "$$PUBLIC_URL" in
+          *://:*|*://) echo "Cannot work out the app's address (got '$$PUBLIC_URL')" >&2; exit 1 ;;
+        esac
+        case "$$ENROLLMENT_MODE" in
+          open|closed) ;;
+          *) echo "Sign-up must be open or closed (got '$$ENROLLMENT_MODE')" >&2; exit 1 ;;
+        esac
+        mkdir -p /config/openpencil /config/seaweedfs /config/nginx
+
+        cat > /config/openpencil/openpencil-cloud.toml.new <<EOF
+        # Generated by openpencil-config on every start. Edits here are overwritten.
+        schema_version = 2
+
+        [deployment]
+        mode = "self-hosted"
+        public_url = "$${PUBLIC_URL}"
+        indexing = "deny"
+        local_editor = true
+
+        [database]
+
+        [authentication.enrollment]
+        mode = "$${ENROLLMENT_MODE}"
+        notification_emails = []
+
+        [authentication.email_password]
+        enabled = true
+        sign_up = true
+        minimum_password_length = 10
+        maximum_password_length = 128
+        verification_link_lifetime_minutes = 60
+        password_reset_link_lifetime_minutes = 60
+        compromised_password_check = false
+
+        [authentication.mfa]
+        required_for_admins = false
+        totp = true
+        recovery_codes = true
+        trusted_device_lifetime_days = 14
+
+        [authentication.passkeys]
+        enabled = false
+        rp_name = "OpenPencil"
+
+        [authentication.trusted_proxies]
+        headers = []
+        addresses = []
+
+        [object_storage]
+        endpoint = "$${PUBLIC_URL}"
+        region = "us-east-1"
+        bucket = "openpencil-objects"
+        force_path_style = true
+        checksum_verification = "metadata"
+        maximum_upload_bytes = 1073741824
+
+        [collaboration]
+        maximum_message_bytes = 1048576
+        maximum_connections_per_room = 1000
+
+        [documents]
+        retention_days = 30
+        purge_grace_days = 7
+
+        [email]
+        transport = "smtp"
+        from = "OpenPencil <noreply@openpencil.local>"
+
+        [email.smtp]
+        host = "openpencil-mail"
+        port = 1025
+        secure = false
+
+        [workers.email]
+        batch_size = 50
+        interval_ms = 5000
+        lease_ms = 300000
+        maximum_attempts = 5
+
+        [workers.cleanup]
+        enabled = true
+        batch_size = 100
+        interval_ms = 60000
+        lease_ms = 300000
+
+        [entitlements]
+        source = "static"
+
+        [entitlements.documents]
+        maximum_file_bytes = 1073741824
+        revision_history = true
+
+        [entitlements.storage]
+        maximum_bytes = 1099511627776
+
+        [entitlements.sharing]
+        links = true
+        guest_view = true
+        guest_edit = false
+        guest_presence = true
+
+        [entitlements.collaboration]
+        enabled = true
+        maximum_participants = 100
+        EOF
+
+        umask 077
+        cat > /config/seaweedfs/s3.json.new <<EOF
+        {
+          "identities": [
+            {
+              "name": "openpencil",
+              "credentials": [{ "accessKey": "$${S3_ACCESS_KEY}", "secretKey": "$${S3_SECRET_KEY}" }],
+              "actions": ["Admin", "Read", "List", "Write"]
+            }
+          ]
+        }
+        EOF
+        # SeaweedFS drops root and runs as its seaweed user (uid 1000).
+        chown 1000:1000 /config/seaweedfs/s3.json.new
+        umask 022
+
+        cat > /config/nginx/default.conf.new <<'EOF'
+        # Generated by openpencil-config on every start. Edits here are overwritten.
+        map $$http_upgrade $$connection_upgrade {
+          default upgrade;
+          ''      close;
+        }
+
+        server {
+          listen 8080;
+          client_max_body_size 0;
+          # Behind Traefik or a remapped port, the address nginx sees isn't the one the browser
+          # used, so redirects must stay relative.
+          absolute_redirect off;
+          # Re-resolve containers after they restart.
+          resolver 127.0.0.11 valid=10s ipv6=off;
+
+          proxy_http_version 1.1;
+          # Object storage checks the signed Host, so pass the browser's through unchanged.
+          proxy_set_header Host $$http_host;
+          proxy_set_header Upgrade $$http_upgrade;
+          proxy_set_header Connection $$connection_upgrade;
+          proxy_read_timeout 1h;
+          proxy_send_timeout 1h;
+
+          # Bucket-level requests (list, head) have no trailing slash; object requests do.
+          location = /openpencil-objects {
+            set $$storage openpencil-storage:8333;
+            proxy_pass http://$$storage;
+          }
+
+          location /openpencil-objects/ {
+            set $$storage openpencil-storage:8333;
+            proxy_pass http://$$storage;
+            proxy_request_buffering off;
+            proxy_buffering off;
+          }
+
+          location /mailpit/ {
+            set $$mail openpencil-mail:8025;
+            proxy_pass http://$$mail;
+          }
+
+          location / {
+            set $$server openpencil-server:8787;
+            proxy_pass http://$$server;
+          }
+        }
+        EOF
+
+        chmod 644 /config/openpencil/openpencil-cloud.toml.new /config/nginx/default.conf.new
+        mv /config/openpencil/openpencil-cloud.toml.new /config/openpencil/openpencil-cloud.toml
+        mv /config/seaweedfs/s3.json.new /config/seaweedfs/s3.json
+        mv /config/nginx/default.conf.new /config/nginx/default.conf
+        echo "Wrote config for $$PUBLIC_URL (sign-up: $$ENROLLMENT_MODE)"

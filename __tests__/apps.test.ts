@@ -97,3 +97,30 @@ describe("docker-compose files should omit the unsupported top-level version", a
     })
   }
 })
+
+type ComposeService = { image?: string; 'x-runtipi'?: { is_main?: boolean; internal_port?: number | string } }
+type ComposeFile = { services?: Record<string, ComposeService>; 'x-runtipi'?: { schema_version?: number } }
+
+describe("docker-compose files should use the dynamic compose format", async () => {
+  const apps = await getApps()
+
+  for (const app of apps) {
+    test(`app ${app} should use x-runtipi schema_version 2 with exactly one main service`, async () => {
+      const parsed = yaml.load((await getFile(app, 'docker-compose.yml')) || '') as ComposeFile
+      expect(parsed['x-runtipi']?.schema_version).toBe(2)
+      const mains = Object.values(parsed.services ?? {}).filter((s) => s['x-runtipi']?.is_main)
+      expect(mains.length).toBe(1)
+      expect(mains[0]?.['x-runtipi']?.internal_port).toBeDefined()
+    })
+
+    test(`app ${app} should pin every image to a tag other than latest`, async () => {
+      const parsed = yaml.load((await getFile(app, 'docker-compose.yml')) || '') as ComposeFile
+      for (const [name, service] of Object.entries(parsed.services ?? {})) {
+        const image = service.image ?? ''
+        const tag = image.includes('@') ? 'digest' : image.slice(image.lastIndexOf('/') + 1).split(':')[1]
+        expect({ service: name, tag }).not.toEqual({ service: name, tag: undefined })
+        expect({ service: name, tag }).not.toEqual({ service: name, tag: 'latest' })
+      }
+    })
+  }
+})

@@ -4,6 +4,9 @@ import type { AppInfo } from "@runtipi/common/schemas";
 import * as yaml from "js-yaml";
 
 const packageFile = process.argv[2];
+// Optional: take the version from this service instead of the main one, for apps whose main
+// service is a proxy in front of the real app (e.g. --service=openpencil-server).
+const versionService = process.argv.find((arg) => arg.startsWith("--service="))?.slice("--service=".length);
 
 console.log(`Updating app config for package file: ${packageFile}`);
 
@@ -55,8 +58,8 @@ const updateAppConfig = async (packageFile: string) => {
     let mainServiceVersion: string | null = null;
     
     if (dockerComposeYml && dockerComposeYml.services) {
-      for (const service of Object.values<any>(dockerComposeYml.services)) {
-        if (service['x-runtipi'] && service['x-runtipi'].is_main) {
+      for (const [name, service] of Object.entries<any>(dockerComposeYml.services)) {
+        if (versionService ? name === versionService : service['x-runtipi'] && service['x-runtipi'].is_main) {
           if (service.image) {
             const versionMatch = service.image.match(/:([^:]+)$/);
             if (versionMatch) {
@@ -69,7 +72,7 @@ const updateAppConfig = async (packageFile: string) => {
     }
 
     if (!mainServiceVersion) {
-      console.warn("Could not find main service version in docker-compose.yml");
+      console.warn(`Could not find the ${versionService ? `"${versionService}"` : "main"} service's image tag in docker-compose.yml`);
     } else {
       config.version = mainServiceVersion;
     }
@@ -86,7 +89,7 @@ const updateAppConfig = async (packageFile: string) => {
 };
 
 if (!packageFile) {
-  console.error("Usage: bun update-config.ts <packageFile>");
+  console.error("Usage: bun update-config.ts <packageFile> [--service=<name>]");
   process.exit(0);
 }
 updateAppConfig(packageFile);

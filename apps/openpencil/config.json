@@ -1,0 +1,79 @@
+{
+  "$schema": "https://schemas.runtipi.io/app-info.json",
+  "urn": "tipi://openpencil",
+  "name": "OpenPencil",
+  "id": "openpencil",
+  "available": true,
+  "short_desc": "Self-hosted, browser-based design editor with cloud project storage.",
+  "author": "OpenPencil contributors",
+  "port": 8787,
+  "categories": [
+    "utilities",
+    "development"
+  ],
+  "description": "OpenPencil Cloud runs the OpenPencil design editor in your browser and stores projects on your own server, in PostgreSQL and SeaweedFS object storage, with accounts, sharing and live collaboration. Sign-up emails are delivered to a built-in inbox at /mailpit/.",
+  "tipi_version": 1,
+  "version": "0.17.0-beta.4",
+  "source": "https://github.com/open-pencil/open-pencil",
+  "website": "https://openpencil.dev",
+  "exposable": true,
+  "supported_architectures": [
+    "amd64"
+  ],
+  "created_at": 1794520231895,
+  "updated_at": 1794520231895,
+  "dynamic_config": true,
+  "form_fields": [
+    {
+      "type": "password",
+      "label": "Mail inbox password",
+      "env_variable": "OPENPENCIL_MAILPIT_PASSWORD",
+      "required": true,
+      "min": 12,
+      "max": 128,
+      "regex": "^[^\\s:]+$",
+      "pattern_error": "Use at least 12 characters with no spaces or colons.",
+      "hint": "Protects the built-in inbox at /mailpit/ (username: mail), where sign-up and password-reset emails arrive."
+    },
+    {
+      "type": "text",
+      "label": "Account sign-up",
+      "env_variable": "OPENPENCIL_ENROLLMENT",
+      "required": false,
+      "default": "open",
+      "options": [
+        { "label": "Open: anyone who can reach the server can create an account", "value": "open" },
+        { "label": "Closed: no new accounts", "value": "closed" }
+      ],
+      "hint": "Create your accounts first, then switch to Closed in the app settings."
+    },
+    {
+      "type": "random",
+      "label": "Authentication secret",
+      "env_variable": "OPENPENCIL_AUTH_SECRET",
+      "min": 64,
+      "required": true
+    },
+    {
+      "type": "random",
+      "label": "Database password",
+      "env_variable": "OPENPENCIL_DB_PASSWORD",
+      "min": 40,
+      "required": true
+    },
+    {
+      "type": "random",
+      "label": "Object storage access key",
+      "env_variable": "OPENPENCIL_S3_ACCESS_KEY",
+      "min": 24,
+      "required": true
+    },
+    {
+      "type": "random",
+      "label": "Object storage secret key",
+      "env_variable": "OPENPENCIL_S3_SECRET_KEY",
+      "min": 48,
+      "required": true
+    }
+  ]
+}
