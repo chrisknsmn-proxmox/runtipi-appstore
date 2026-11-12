@@ -18,18 +18,6 @@ The apps will then appear in the Runtipi app store alongside the official ones.
 | ---- | ----------- | ---- |
 | [Ignis](https://github.com/Nystik-gh/ignis) | Run Obsidian as a self-hosted web app. Not remote desktop, an actual web app. | 8287 |
 
-## Repository layout
-
-```
-apps/
-  <app-id>/
-    config.json          # app metadata (id must match the folder name)
-    docker-compose.yml   # runtipi dynamic compose (x-runtipi schema_version 2)
-    metadata/
-      description.md     # shown on the app page
-      logo.jpg           # app icon
-```
-
 ## Development
 
 ```sh
