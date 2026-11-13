@@ -45,6 +45,7 @@ Once everyone has an account, set **Account sign-up** to **Closed** in the app's
 
 - Website: https://openpencil.dev
 - Source: https://github.com/open-pencil/open-pencil
+- This app's server image is built from the fork at https://github.com/chrisknsmn-proxmox/open-pencil
 - Self-hosting guide: https://openpencil.dev/reference/self-hosting-cloud
 
 OpenPencil is MIT licensed. The Cloud server is licensed under Apache-2.0 and MIT.

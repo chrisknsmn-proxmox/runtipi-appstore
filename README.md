@@ -23,6 +23,16 @@ The apps will then appear in the Runtipi app store alongside the official ones.
 
 OpenPencil Cloud runs as seven containers: the OpenPencil server, PostgreSQL, SeaweedFS (S3 storage), Mailpit (a built-in inbox), an nginx front door, and two one-shot jobs. One job writes the config files and the other creates the storage bucket. Browsers upload files straight to storage, so nginx serves the editor and the bucket (`/openpencil-objects/`) from the same address. On every start, the config job rebuilds `openpencil-cloud.toml` from the app's Runtipi settings. Secrets stay in environment variables.
 
+**Server image:** upstream's image, `ghcr.io/open-pencil/cloud`, can't be pulled anonymously, so this app uses `ghcr.io/chrisknsmn-proxmox/openpencil-cloud` instead. That image is built from the fork [chrisknsmn-proxmox/open-pencil](https://github.com/chrisknsmn-proxmox/open-pencil) by the fork's **Cloud image** workflow. It's upstream's own workflow, changed only to publish under this name. To build a version, push its tag to the fork, then go to **Actions → Cloud image → Run workflow** in the fork and enter that tag. The tag can be an upstream release, or your own tag on top of one, such as `v0.17.0-beta.4-custom.1`:
+
+```sh
+# in a clone of the fork, with upstream as a remote
+git fetch upstream tag v0.17.0-beta.4 --no-tags
+git push origin v0.17.0-beta.4
+```
+
+The image is tagged with the version minus the `v`, e.g. `0.17.0-beta.4`. The package must be **Public** (package settings → Change visibility) or Runtipi can't pull it. Keep the fork's `build.yml` workflow disabled: it builds the desktop apps for every `v*` tag you push.
+
 **Refresh the store:** in Runtipi, go to **Settings → App Stores → Update app stores**.
 
 **Install:** open OpenPencil in the app store and install it. The only required setting is **Mail inbox password**. **Account sign-up** defaults to *Open*. The auth secret, database password and storage keys are generated for you. OpenPencil and Ignis are independent and can be installed separately.
@@ -49,10 +59,10 @@ cd /path/to/runtipi/app-data/<store>/openpencil
 tar czf ~/openpencil-$(date +%F).tar.gz data config
 ```
 
-**Update:** take a backup first. Database migrations only run forward, so rolling back means restoring the backup. Then bump the `openpencil-server` image tag and run `bun scripts/update-config.ts apps/openpencil/docker-compose.yml --service=openpencil-server`. The main service is nginx, so without `--service` the version would come from nginx's tag. Push, then use **Update** on the app in Runtipi. Data in `app-data/<store>/openpencil/data` is kept.
+**Update:** take a backup first. Database migrations only run forward, so rolling back means restoring the backup. Build the new version's image in the fork (see **Server image**). Then bump the `openpencil-server` image tag here and run `bun scripts/update-config.ts apps/openpencil/docker-compose.yml --service=openpencil-server`. The main service is nginx, so without `--service` the version would come from nginx's tag. Push, then use **Update** on the app in Runtipi. Data in `app-data/<store>/openpencil/data` is kept.
 
 **Limitations:**
-- 0.17.0 is a beta. As of 2026-11-12, `ghcr.io/open-pencil/cloud` didn't allow anonymous pulls, so installing fails until upstream makes the image public.
+- 0.17.0 is a beta.
 - Email only reaches the built-in Mailpit inbox. No SMTP relay is configured.
 - Passkeys are disabled because they don't work on bare IP addresses.
 - The image doesn't include the `admin` CLI, so there's no deployment administrator. *Approval* sign-up mode is therefore not offered.

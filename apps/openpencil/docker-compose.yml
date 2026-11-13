@@ -41,7 +41,9 @@ services:
       internal_port: 8080
 
   openpencil-server:
-    image: ghcr.io/open-pencil/cloud:0.17.0-beta.4
+    # Built from the fork at github.com/chrisknsmn-proxmox/open-pencil by its "Cloud image"
+    # workflow, because upstream's ghcr.io/open-pencil/cloud isn't publicly pullable.
+    image: ghcr.io/chrisknsmn-proxmox/openpencil-cloud:0.17.0-beta.4
     depends_on:
       openpencil-config:
         condition: service_completed_successfully
