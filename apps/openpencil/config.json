@@ -12,8 +12,8 @@
     "development"
   ],
   "description": "OpenPencil Cloud runs the OpenPencil design editor in your browser and stores projects on your own server, in PostgreSQL and SeaweedFS object storage, with accounts, sharing and live collaboration. Sign-up emails are delivered to a built-in inbox at /mailpit/.",
-  "tipi_version": 2,
-  "version": "0.17.0-beta.4",
+  "tipi_version": 3,
+  "version": "0.17.0-beta.4-lan.1",
   "source": "https://github.com/chrisknsmn-proxmox/open-pencil",
   "website": "https://openpencil.dev",
   "exposable": true,
@@ -21,7 +21,7 @@
     "amd64"
   ],
   "created_at": 1794520231895,
-  "updated_at": 1794602127302,
+  "updated_at": 1794611463996,
   "dynamic_config": true,
   "form_fields": [
     {
@@ -31,8 +31,8 @@
       "required": true,
       "min": 12,
       "max": 128,
-      "regex": "^[^\\s:]+$",
-      "pattern_error": "Use at least 12 characters with no spaces or colons.",
+      "regex": "^[^\\s:$\"'`\\\\]+$",
+      "pattern_error": "Use at least 12 characters with no spaces, colons, $, quotes, backticks or backslashes.",
       "hint": "Protects the built-in inbox at /mailpit/ (username: mail), where sign-up and password-reset emails arrive."
     },
     {

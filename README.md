@@ -23,7 +23,11 @@ The apps will then appear in the Runtipi app store alongside the official ones.
 
 OpenPencil Cloud runs as seven containers: the OpenPencil server, PostgreSQL, SeaweedFS (S3 storage), Mailpit (a built-in inbox), an nginx front door, and two one-shot jobs. One job writes the config files and the other creates the storage bucket. Browsers upload files straight to storage, so nginx serves the editor and the bucket (`/openpencil-objects/`) from the same address. On every start, the config job rebuilds `openpencil-cloud.toml` from the app's Runtipi settings. Secrets stay in environment variables.
 
-**Server image:** upstream's image, `ghcr.io/open-pencil/cloud`, can't be pulled anonymously, so this app uses `ghcr.io/chrisknsmn-proxmox/openpencil-cloud` instead. That image is built from the fork [chrisknsmn-proxmox/open-pencil](https://github.com/chrisknsmn-proxmox/open-pencil) by the fork's **Cloud image** workflow. It's upstream's own workflow, changed only to publish under this name. To build a version, push its tag to the fork, then go to **Actions → Cloud image → Run workflow** in the fork and enter that tag. The tag can be an upstream release, or your own tag on top of one, such as `v0.17.0-beta.4-custom.1`:
+**Server image:** upstream's image, `ghcr.io/open-pencil/cloud`, can't be pulled anonymously, so this app uses `ghcr.io/chrisknsmn-proxmox/openpencil-cloud` instead. That image is built from the fork [chrisknsmn-proxmox/open-pencil](https://github.com/chrisknsmn-proxmox/open-pencil) by the fork's **Cloud image** workflow. It's upstream's own workflow, changed only to publish under this name.
+
+The app uses `0.17.0-beta.4-lan.1`, built from the fork's `runtipi/v0.17.0-beta.4` branch: upstream's `v0.17.0-beta.4` plus one patch (`src/app/cloud/servers/address.ts`) that lets the editor use the server it was loaded from over plain HTTP. Upstream only accepts HTTPS or `localhost` servers, so on a LAN address the editor fails with "Cloud server address is invalid" and can't sign in or save. For a new upstream version, rebase that branch onto the new tag and tag the result `v<version>-lan.1`.
+
+To build a version, push its tag to the fork, then go to **Actions → Cloud image → Run workflow** in the fork and enter that tag:
 
 ```sh
 # in a clone of the fork, with upstream as a remote
@@ -33,13 +37,13 @@ git push origin v0.17.0-beta.4
 
 The image is tagged with the version minus the `v`, e.g. `0.17.0-beta.4`. The package must be **Public** (package settings → Change visibility) or Runtipi can't pull it. Keep the fork's `build.yml` workflow disabled: it builds the desktop apps for every `v*` tag you push.
 
-**Refresh the store:** in Runtipi, go to **Settings → App Stores → Update app stores**.
+**Refresh the store:** in Runtipi, go to **Settings → Actions → Update App Stores** and click **Update**.
 
 **Install:** open OpenPencil in the app store and install it. The only required setting is **Mail inbox password**. **Account sign-up** defaults to *Open*. The auth secret, database password and storage keys are generated for you. OpenPencil and Ignis are independent and can be installed separately.
 
 **Access:** the editor needs a secure context (HTTPS or `localhost`). Plain `http://<server-ip>:8787` loads, but cloud documents fail to open or save. Use one of these:
 - Expose the app on a domain with a valid certificate in Runtipi, then restart the app.
-- For LAN or WireGuard without TLS, add `http://<server-ip>:8787` to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on each device.
+- For LAN or WireGuard without TLS, add `http://<server-ip>:8787` to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on each device, set it to **Enabled** and relaunch. Plain HTTP on a LAN address also needs the fork's patch, which the image already has (see **Server image**).
 
 Runtipi's local `*.tipi.lan` address isn't supported: the server can't verify its self-signed certificate when it reaches its own storage at that address. Always use the exact address Runtipi shows.
 

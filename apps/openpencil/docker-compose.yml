@@ -42,8 +42,9 @@ services:
 
   openpencil-server:
     # Built from the fork at github.com/chrisknsmn-proxmox/open-pencil by its "Cloud image"
-    # workflow, because upstream's ghcr.io/open-pencil/cloud isn't publicly pullable.
-    image: ghcr.io/chrisknsmn-proxmox/openpencil-cloud:0.17.0-beta.4
+    # workflow, because upstream's ghcr.io/open-pencil/cloud isn't publicly pullable. The -lan
+    # build adds one patch so the editor can use this server over plain HTTP on a LAN address.
+    image: ghcr.io/chrisknsmn-proxmox/openpencil-cloud:0.17.0-beta.4-lan.1
     depends_on:
       openpencil-config:
         condition: service_completed_successfully

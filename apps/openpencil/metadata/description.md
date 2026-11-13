@@ -2,7 +2,7 @@
 
 [OpenPencil](https://openpencil.dev) is an open-source design editor that runs in your browser. This app runs **OpenPencil Cloud**, the self-hosted server, which stores projects on your own machine and adds accounts, version history, share links and live collaboration.
 
-> **Beta:** OpenPencil Cloud first shipped in 0.17.0, which is still in beta. This app uses `0.17.0-beta.4`.
+> **Beta:** OpenPencil Cloud first shipped in 0.17.0, which is still in beta. This app uses `0.17.0-beta.4` with one patch so the editor can use your server over plain HTTP on your home network.
 
 ### What gets installed
 
