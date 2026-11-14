@@ -33,11 +33,24 @@ Runtipi's local `*.tipi.lan` address is **not** supported. The OpenPencil server
 
 Once everyone has an account, set **Account sign-up** to **Closed** in the app's settings.
 
+### Saving
+
+Save a design to your server once with **Save** or **File → Save to…**, and choose your server. From then on, it saves automatically about 3 seconds after each change. (**Auto-save to local file** in the File menu is for files on your own computer, not your server.)
+
+### Keeping documents on another drive
+
+By default, documents live in Runtipi's app-data folder. To keep them somewhere else, such as a large HDD, set **Storage folder** in the app's settings to a folder on that drive, e.g. `/mnt/hdd/openpencil`, and save. Runtipi itself stays where it is.
+
+- On the next start, your existing documents and accounts are copied into that folder, and from then on everything is saved there. The old copy stays in app-data until you delete it.
+- The drive must be mounted inside the Runtipi server (the VM or machine running Runtipi), permanently via `/etc/fstab`. If it isn't mounted, the app refuses to start rather than save to the system disk.
+- Clearing the setting or pointing it at an empty folder later doesn't move anything back. The app refuses to start so it never opens an out-of-date copy. Copy the folder's contents yourself first.
+- Uninstalling the app doesn't delete the storage folder. Before you reinstall, move that folder aside: a reinstall creates new passwords that won't open the old database.
+
 ### Good to know
 
 - Use exactly the address Runtipi shows for the app. Sign-in is tied to that address, so a different hostname or port for the same server is rejected.
 - If you change the port or domain, restart the app. Its config is rebuilt from your settings on every start.
-- Back up the whole app-data folder while the app is stopped. The database and the files belong together.
+- Back up the whole app-data folder, plus the storage folder if you set one, while the app is stopped. The database and the files belong together.
 - Passkeys are off because they don't work on a bare IP address. Authenticator-app two-factor (TOTP) is available.
 - Server administrator tools (the `admin` command) aren't included in the image, so this app has no deployment administrator. Workspace roles work as normal.
 

@@ -11,6 +11,10 @@
 # every start, from the app's settings. Changing the port, domain or sign-up mode in Runtipi then
 # updates them on the next restart. Secrets reach OpenPencil as environment variables and
 # never go into its TOML.
+#
+# The database and the bucket live in ${APP_DATA_DIR}/data, or in the "Storage folder" setting
+# (OPENPENCIL_STORAGE_DIR) when it's set, e.g. a folder on a separate drive. Both always go to
+# the same place, because they're only consistent together.
 x-runtipi:
   schema_version: 2
   overrides: []
@@ -73,12 +77,16 @@ services:
 
   openpencil-db:
     image: postgres:17.11-alpine
+    depends_on:
+      # Checks the storage folder's drive is mounted before the database can write to it.
+      openpencil-config:
+        condition: service_completed_successfully
     environment:
       POSTGRES_DB: openpencil
       POSTGRES_USER: openpencil
       POSTGRES_PASSWORD: ${OPENPENCIL_DB_PASSWORD}
     volumes:
-      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
+      - ${OPENPENCIL_STORAGE_DIR:-${APP_DATA_DIR}/data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openpencil -d openpencil"]
       interval: 5s
@@ -97,7 +105,7 @@ services:
       - -s3.port=8333
       - -s3.config=/etc/seaweedfs/s3.json
     volumes:
-      - ${APP_DATA_DIR}/data/seaweedfs:/data
+      - ${OPENPENCIL_STORAGE_DIR:-${APP_DATA_DIR}/data}/seaweedfs:/data
       - ${APP_DATA_DIR}/config/seaweedfs:/etc/seaweedfs:ro
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "8333"]
@@ -141,12 +149,59 @@ services:
       ENROLLMENT_MODE: ${OPENPENCIL_ENROLLMENT:-open}
       S3_ACCESS_KEY: ${OPENPENCIL_S3_ACCESS_KEY}
       S3_SECRET_KEY: ${OPENPENCIL_S3_SECRET_KEY}
+      STORAGE_DIR: ${OPENPENCIL_STORAGE_DIR:-}
     volumes:
       - ${APP_DATA_DIR}/config:/config
+      - ${APP_DATA_DIR}/data:/appdata
+      - ${OPENPENCIL_STORAGE_DIR:-${APP_DATA_DIR}/data}:/storage
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -eu
+        # The database and the bucket live in /storage: the Storage folder setting, or app-data's
+        # data folder (/appdata) when it's empty. app-data's MOVED_TO records where they went, so
+        # an out-of-date or empty copy is never started by mistake.
+        moved_to=/appdata/MOVED_TO
+        is_empty() { [ -z "$$(ls -A "$$1" 2>/dev/null)" ]; }
+        if [ -n "$$STORAGE_DIR" ]; then
+          # Docker creates a missing bind-mount folder, so a folder on a drive that isn't mounted
+          # would quietly land on the system disk. Same filesystem as app-data means exactly that.
+          if [ "$$(stat -c %d /storage)" = "$$(stat -c %d /config)" ]; then
+            echo "Storage folder $$STORAGE_DIR is on the same drive as Runtipi's app-data." >&2
+            echo "Mount the other drive first, or clear the Storage folder setting." >&2
+            exit 1
+          fi
+          if is_empty /storage/postgres && is_empty /storage/seaweedfs; then
+            if [ -f "$$moved_to" ]; then
+              echo "Storage folder $$STORAGE_DIR is empty, but OpenPencil's data is in $$(cat "$$moved_to")." >&2
+              echo "Set Storage folder back to that, or copy its contents here." >&2
+              exit 1
+            fi
+            if ! is_empty /appdata/postgres; then
+              # Runtipi recreates every container, so the old database has stopped by now, and the
+              # new one waits for this job. Copy into a scratch folder first so a failed copy is
+              # retried rather than half-used.
+              echo "Copying OpenPencil's data from app-data to $$STORAGE_DIR"
+              rm -rf /storage/.copying
+              mkdir /storage/.copying
+              for dir in postgres seaweedfs; do
+                if [ -d "/appdata/$$dir" ]; then cp -a "/appdata/$$dir" /storage/.copying/; fi
+              done
+              for dir in postgres seaweedfs; do
+                if [ -d "/storage/.copying/$$dir" ]; then
+                  if [ -d "/storage/$$dir" ]; then rmdir "/storage/$$dir"; fi
+                  mv "/storage/.copying/$$dir" "/storage/$$dir"
+                fi
+              done
+              rmdir /storage/.copying
+            fi
+          fi
+          echo "$$STORAGE_DIR" > "$$moved_to"
+        elif [ -f "$$moved_to" ]; then
+          echo "OpenPencil's data is in $$(cat "$$moved_to"); app-data's copy is out of date." >&2
+          echo "Set Storage folder back to that folder, or delete data/MOVED_TO in the app's app-data folder to use app-data's copy." >&2
+          exit 1
+        fi
         PUBLIC_URL="$${PUBLIC_URL%/}"
         case "$$PUBLIC_URL" in
           http://?*|https://?*) ;;
@@ -327,4 +382,4 @@ services:
         mv /config/openpencil/openpencil-cloud.toml.new /config/openpencil/openpencil-cloud.toml
         mv /config/seaweedfs/s3.json.new /config/seaweedfs/s3.json
         mv /config/nginx/default.conf.new /config/nginx/default.conf
-        echo "Wrote config for $$PUBLIC_URL (sign-up: $$ENROLLMENT_MODE)"
+        echo "Wrote config for $$PUBLIC_URL (sign-up: $$ENROLLMENT_MODE, storage: $${STORAGE_DIR:-app-data})"

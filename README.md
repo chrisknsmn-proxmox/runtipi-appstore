@@ -49,6 +49,11 @@ Runtipi's local `*.tipi.lan` address isn't supported: the server can't verify it
 
 **First account:** sign up, then open `<app address>/mailpit/`, log in as `mail` with your inbox password, and click the verification link. When everyone has an account, set sign-up to *Closed* in the app settings.
 
+**Storage folder:** by default the database and the bucket live in `app-data/<store>/openpencil/data`. The optional **Storage folder** setting (`OPENPENCIL_STORAGE_DIR`) moves both, as `postgres/` and `seaweedfs/`, to a folder on another drive. The drive must be mounted inside the Runtipi host. Proxmox seeing it isn't enough. The config job runs first on every start, and the database waits for it:
+- If the storage folder is on the same filesystem as app-data, the job fails, so an unmounted drive stops the app instead of filling the system disk.
+- If the storage folder's `postgres/` and `seaweedfs/` are empty, the job copies app-data's `data/postgres` and `data/seaweedfs` there (`cp -a` into `.copying/`, then renamed into place). The old database container has already stopped by then, because Runtipi recreates every container.
+- It records the folder in app-data's `data/MOVED_TO`. Later, if the setting is cleared or points at an empty folder, the job fails instead of starting an out-of-date or empty copy. Deleting `MOVED_TO` overrides this. Uninstalling doesn't delete the storage folder, but a reinstall generates new secrets that can't open the old database, so move the folder aside first.
+
 **Health:** every long-running container should report `healthy`, and `/ready` succeeds only when the database and storage both work:
 
 ```sh
@@ -56,11 +61,13 @@ docker ps --filter name=openpencil --format 'table {{.Names}}\t{{.Status}}'
 curl -s http://<server-ip>:8787/ready   # {"status":"ready",...}
 ```
 
-**Backup:** the database and the bucket must be backed up together. Stop the app in Runtipi, archive its whole app-data folder, then start it again:
+**Backup:** the database and the bucket must be backed up together. Stop the app in Runtipi, archive its whole app-data folder (and the storage folder, if set), then start it again:
 
 ```sh
 cd /path/to/runtipi/app-data/<store>/openpencil
 tar czf ~/openpencil-$(date +%F).tar.gz data config
+# with a storage folder, e.g. /mnt/hdd/openpencil:
+sudo tar czf ~/openpencil-data-$(date +%F).tar.gz -C /mnt/hdd openpencil
 ```
 
 **Update:** take a backup first. Database migrations only run forward, so rolling back means restoring the backup. Build the new version's image in the fork (see **Server image**). Then bump the `openpencil-server` image tag here and run `bun scripts/update-config.ts apps/openpencil/docker-compose.yml --service=openpencil-server`. The main service is nginx, so without `--service` the version would come from nginx's tag. Push, then use **Update** on the app in Runtipi. Data in `app-data/<store>/openpencil/data` is kept.
