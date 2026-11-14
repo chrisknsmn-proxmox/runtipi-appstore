@@ -129,18 +129,11 @@ services:
       AWS_ACCESS_KEY_ID: ${OPENPENCIL_S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${OPENPENCIL_S3_SECRET_KEY}
       AWS_DEFAULT_REGION: us-east-1
-      STORAGE_DIR: ${OPENPENCIL_STORAGE_DIR:-}
-    volumes:
-      - ${APP_DATA_DIR}/data:/appdata
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - |
-        set -eu
-        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects \
-          || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
-        # Storage now works from the Storage folder, so the move is done and app-data's copy of
-        # the files is out of date from here on. openpencil-config reads this marker.
-        if [ -n "$$STORAGE_DIR" ]; then echo "$$STORAGE_DIR" > /appdata/MOVED_TO; fi
+      - >-
+        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects
+        || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
 
   # Catches sign-up and password-reset email; read it at <app address>/mailpit/ (user: mail).
   openpencil-mail:
@@ -171,11 +164,11 @@ services:
       - |
         set -eu
         # The design files (the bucket) live in /storage/seaweedfs: under the Storage folder setting,
-        # or in app-data's data folder (/appdata) when it's empty. Once storage has worked from a
-        # Storage folder, openpencil-bucket writes app-data's MOVED_TO, so an out-of-date or empty
-        # copy of the files is never started by mistake.
-        moved_to=/appdata/MOVED_TO
+        # or in app-data's data folder (/appdata) when it's empty. Pointing the setting at a folder
+        # with no files copies app-data's files there; app-data keeps its copy as a backup.
         is_empty() { [ -z "$$(ls -A "$$1" 2>/dev/null)" ]; }
+        # Earlier versions of this app wrote a MOVED_TO marker that blocked starting; drop it.
+        rm -f /appdata/MOVED_TO
         if [ -n "$$STORAGE_DIR" ]; then
           # Docker creates a missing bind-mount folder, so a folder on a drive that isn't mounted
           # would quietly land on the system disk. Same filesystem as app-data means exactly that.
@@ -184,30 +177,19 @@ services:
             echo "Mount the other drive first, or clear the Storage folder setting." >&2
             exit 1
           fi
-          if is_empty /storage/seaweedfs; then
-            if [ -f "$$moved_to" ]; then
-              echo "Storage folder $$STORAGE_DIR has no files, but OpenPencil's files were moved to $$(cat "$$moved_to")." >&2
-              echo "Set Storage folder back to that, or copy its seaweedfs folder here." >&2
-              exit 1
-            fi
-            if ! is_empty /appdata/seaweedfs; then
-              # Runtipi recreates every container, so the old storage has stopped by now, and the
-              # new one waits for this job. Copy into a scratch folder first so a failed copy is
-              # retried rather than half-used. On drives without Unix ownership (NTFS, exFAT), cp
-              # warns that it can't keep file owners and carries on; SeaweedFS runs as root.
-              echo "Copying OpenPencil's files from app-data to $$STORAGE_DIR"
-              rm -rf /storage/.copying
-              mkdir /storage/.copying
-              cp -a /appdata/seaweedfs /storage/.copying/
-              if [ -d /storage/seaweedfs ]; then rmdir /storage/seaweedfs; fi
-              mv /storage/.copying/seaweedfs /storage/seaweedfs
-              rmdir /storage/.copying
-            fi
+          if is_empty /storage/seaweedfs && ! is_empty /appdata/seaweedfs; then
+            # Runtipi recreates every container, so the old storage has stopped by now, and the
+            # new one waits for this job. Copy into a scratch folder first so a failed copy is
+            # retried rather than half-used. On drives without Unix ownership (NTFS, exFAT), cp
+            # warns that it can't keep file owners and carries on; SeaweedFS runs as root.
+            echo "Copying OpenPencil's files from app-data to $$STORAGE_DIR"
+            rm -rf /storage/.copying
+            mkdir /storage/.copying
+            cp -a /appdata/seaweedfs /storage/.copying/
+            if [ -d /storage/seaweedfs ]; then rmdir /storage/seaweedfs; fi
+            mv /storage/.copying/seaweedfs /storage/seaweedfs
+            rmdir /storage/.copying
           fi
-        elif [ -f "$$moved_to" ]; then
-          echo "OpenPencil's files are in $$(cat "$$moved_to"); app-data's copy is out of date." >&2
-          echo "Set Storage folder back to that folder. To use app-data's copy anyway, delete data/MOVED_TO in the app's app-data folder." >&2
-          exit 1
         fi
         PUBLIC_URL="$${PUBLIC_URL%/}"
         case "$$PUBLIC_URL" in
