@@ -39,11 +39,12 @@ Save a design to your server once with **Save** or **File → Save to…**, and 
 
 ### Keeping documents on another drive
 
-By default, documents live in Runtipi's app-data folder. To keep them somewhere else, such as a large HDD, set **Storage folder** in the app's settings to a folder on that drive, e.g. `/mnt/hdd/openpencil`, and save. Runtipi itself stays where it is.
+By default, design files live in Runtipi's app-data folder. To keep them somewhere else, such as a large HDD, set **Storage folder** in the app's settings to a folder on that drive, e.g. `/mnt/hdd/openpencil`, and save. Runtipi itself stays where it is. Any drive format works, including NTFS and exFAT.
 
-- On the next start, your existing documents and accounts are copied into that folder, and from then on everything is saved there. The old copy stays in app-data until you delete it.
-- The drive must be mounted inside the Runtipi server (the VM or machine running Runtipi), permanently via `/etc/fstab`. If it isn't mounted, the app refuses to start rather than save to the system disk.
-- Clearing the setting or pointing it at an empty folder later doesn't move anything back. The app refuses to start so it never opens an out-of-date copy. Copy the folder's contents yourself first.
+- On the next start, your existing design files are copied into that folder, and from then on they're saved there. The old copy stays in app-data until you delete it.
+- Accounts and the list of documents stay in a small database in app-data, because the database needs a Linux-formatted drive.
+- The drive must be mounted inside the Runtipi server (the VM, container or machine running Runtipi). If it isn't mounted, the app refuses to start rather than save to the system disk.
+- If the app never starts successfully from the new folder, clearing the setting goes straight back to app-data. Once it has worked from there, clearing the setting or pointing it at an empty folder doesn't move anything back. Instead, the app refuses to start so it never opens an out-of-date copy. Copy the folder's `seaweedfs` contents yourself first.
 - Uninstalling the app doesn't delete the storage folder. Before you reinstall, move that folder aside: a reinstall creates new passwords that won't open the old database.
 
 ### Good to know

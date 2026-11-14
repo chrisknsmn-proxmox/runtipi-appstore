@@ -12,9 +12,10 @@
 # updates them on the next restart. Secrets reach OpenPencil as environment variables and
 # never go into its TOML.
 #
-# The database and the bucket live in ${APP_DATA_DIR}/data, or in the "Storage folder" setting
-# (OPENPENCIL_STORAGE_DIR) when it's set, e.g. a folder on a separate drive. Both always go to
-# the same place, because they're only consistent together.
+# The database always lives in ${APP_DATA_DIR}/data/postgres. The bucket (the design files) lives
+# in ${APP_DATA_DIR}/data/seaweedfs, or under the "Storage folder" setting (OPENPENCIL_STORAGE_DIR)
+# when it's set, e.g. a folder on an HDD. PostgreSQL needs real Unix ownership and permissions,
+# which drives such as NTFS or exFAT don't have. SeaweedFS runs as root, so it doesn't care.
 x-runtipi:
   schema_version: 2
   overrides: []
@@ -77,16 +78,12 @@ services:
 
   openpencil-db:
     image: postgres:17.11-alpine
-    depends_on:
-      # Checks the storage folder's drive is mounted before the database can write to it.
-      openpencil-config:
-        condition: service_completed_successfully
     environment:
       POSTGRES_DB: openpencil
       POSTGRES_USER: openpencil
       POSTGRES_PASSWORD: ${OPENPENCIL_DB_PASSWORD}
     volumes:
-      - ${OPENPENCIL_STORAGE_DIR:-${APP_DATA_DIR}/data}/postgres:/var/lib/postgresql/data
+      - ${APP_DATA_DIR}/data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openpencil -d openpencil"]
       interval: 5s
@@ -98,9 +95,17 @@ services:
     depends_on:
       openpencil-config:
         condition: service_completed_successfully
+    # Run weed directly, as root. The image's entrypoint chowns /data to its seaweed user
+    # (uid 1000) and drops to it, which fails with "permission denied" on drives without Unix
+    # ownership, such as NTFS or exFAT. The flags below are the ones that entrypoint adds.
+    entrypoint: ["/usr/bin/weed", "-logtostderr=true"]
+    environment:
+      GODEBUG: fips140=on
     command:
       - server
       - -dir=/data
+      - -volume.max=0
+      - -master.volumeSizeLimitMB=1024
       - -s3
       - -s3.port=8333
       - -s3.config=/etc/seaweedfs/s3.json
@@ -124,11 +129,18 @@ services:
       AWS_ACCESS_KEY_ID: ${OPENPENCIL_S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${OPENPENCIL_S3_SECRET_KEY}
       AWS_DEFAULT_REGION: us-east-1
+      STORAGE_DIR: ${OPENPENCIL_STORAGE_DIR:-}
+    volumes:
+      - ${APP_DATA_DIR}/data:/appdata
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - >-
-        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects
-        || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
+      - |
+        set -eu
+        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects \
+          || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
+        # Storage now works from the Storage folder, so the move is done and app-data's copy of
+        # the files is out of date from here on. openpencil-config reads this marker.
+        if [ -n "$$STORAGE_DIR" ]; then echo "$$STORAGE_DIR" > /appdata/MOVED_TO; fi
 
   # Catches sign-up and password-reset email; read it at <app address>/mailpit/ (user: mail).
   openpencil-mail:
@@ -158,9 +170,10 @@ services:
     command:
       - |
         set -eu
-        # The database and the bucket live in /storage: the Storage folder setting, or app-data's
-        # data folder (/appdata) when it's empty. app-data's MOVED_TO records where they went, so
-        # an out-of-date or empty copy is never started by mistake.
+        # The design files (the bucket) live in /storage/seaweedfs: under the Storage folder setting,
+        # or in app-data's data folder (/appdata) when it's empty. Once storage has worked from a
+        # Storage folder, openpencil-bucket writes app-data's MOVED_TO, so an out-of-date or empty
+        # copy of the files is never started by mistake.
         moved_to=/appdata/MOVED_TO
         is_empty() { [ -z "$$(ls -A "$$1" 2>/dev/null)" ]; }
         if [ -n "$$STORAGE_DIR" ]; then
@@ -171,35 +184,29 @@ services:
             echo "Mount the other drive first, or clear the Storage folder setting." >&2
             exit 1
           fi
-          if is_empty /storage/postgres && is_empty /storage/seaweedfs; then
+          if is_empty /storage/seaweedfs; then
             if [ -f "$$moved_to" ]; then
-              echo "Storage folder $$STORAGE_DIR is empty, but OpenPencil's data is in $$(cat "$$moved_to")." >&2
-              echo "Set Storage folder back to that, or copy its contents here." >&2
+              echo "Storage folder $$STORAGE_DIR has no files, but OpenPencil's files were moved to $$(cat "$$moved_to")." >&2
+              echo "Set Storage folder back to that, or copy its seaweedfs folder here." >&2
               exit 1
             fi
-            if ! is_empty /appdata/postgres; then
-              # Runtipi recreates every container, so the old database has stopped by now, and the
+            if ! is_empty /appdata/seaweedfs; then
+              # Runtipi recreates every container, so the old storage has stopped by now, and the
               # new one waits for this job. Copy into a scratch folder first so a failed copy is
-              # retried rather than half-used.
-              echo "Copying OpenPencil's data from app-data to $$STORAGE_DIR"
+              # retried rather than half-used. On drives without Unix ownership (NTFS, exFAT), cp
+              # warns that it can't keep file owners and carries on; SeaweedFS runs as root.
+              echo "Copying OpenPencil's files from app-data to $$STORAGE_DIR"
               rm -rf /storage/.copying
               mkdir /storage/.copying
-              for dir in postgres seaweedfs; do
-                if [ -d "/appdata/$$dir" ]; then cp -a "/appdata/$$dir" /storage/.copying/; fi
-              done
-              for dir in postgres seaweedfs; do
-                if [ -d "/storage/.copying/$$dir" ]; then
-                  if [ -d "/storage/$$dir" ]; then rmdir "/storage/$$dir"; fi
-                  mv "/storage/.copying/$$dir" "/storage/$$dir"
-                fi
-              done
+              cp -a /appdata/seaweedfs /storage/.copying/
+              if [ -d /storage/seaweedfs ]; then rmdir /storage/seaweedfs; fi
+              mv /storage/.copying/seaweedfs /storage/seaweedfs
               rmdir /storage/.copying
             fi
           fi
-          echo "$$STORAGE_DIR" > "$$moved_to"
         elif [ -f "$$moved_to" ]; then
-          echo "OpenPencil's data is in $$(cat "$$moved_to"); app-data's copy is out of date." >&2
-          echo "Set Storage folder back to that folder, or delete data/MOVED_TO in the app's app-data folder to use app-data's copy." >&2
+          echo "OpenPencil's files are in $$(cat "$$moved_to"); app-data's copy is out of date." >&2
+          echo "Set Storage folder back to that folder. To use app-data's copy anyway, delete data/MOVED_TO in the app's app-data folder." >&2
           exit 1
         fi
         PUBLIC_URL="$${PUBLIC_URL%/}"
@@ -325,8 +332,7 @@ services:
           ]
         }
         EOF
-        # SeaweedFS drops root and runs as its seaweed user (uid 1000).
-        chown 1000:1000 /config/seaweedfs/s3.json.new
+        # SeaweedFS runs as root (see openpencil-storage), so the file stays root-only.
         umask 022
 
         cat > /config/nginx/default.conf.new <<'EOF'

@@ -12,7 +12,7 @@
     "development"
   ],
   "description": "OpenPencil Cloud runs the OpenPencil design editor in your browser and stores projects on your own server, in PostgreSQL and SeaweedFS object storage, with accounts, sharing and live collaboration. Sign-up emails are delivered to a built-in inbox at /mailpit/.",
-  "tipi_version": 4,
+  "tipi_version": 5,
   "version": "0.17.0-beta.4-lan.1",
   "source": "https://github.com/chrisknsmn-proxmox/open-pencil",
   "website": "https://openpencil.dev",
@@ -21,7 +21,7 @@
     "amd64"
   ],
   "created_at": 1794520231895,
-  "updated_at": 1794619039080,
+  "updated_at": 1794621875748,
   "dynamic_config": true,
   "form_fields": [
     {
@@ -61,7 +61,7 @@
       "max": 255,
       "regex": "^(/[A-Za-z0-9._-]+)+$",
       "pattern_error": "Use a full path such as /mnt/hdd/openpencil: letters, numbers, dots, dashes and underscores, no spaces or trailing slash.",
-      "hint": "Where OpenPencil saves everything, e.g. a folder on an HDD such as /mnt/hdd/openpencil. Leave empty to use Runtipi's app-data folder. Your existing documents and accounts are copied there on the next start. The drive must be mounted in the Runtipi server; if it isn't, the app won't start."
+      "hint": "Where OpenPencil saves your design files, e.g. a folder on an HDD such as /mnt/hdd/openpencil. Any drive format works, including NTFS. Leave empty to use Runtipi's app-data folder. Existing files are copied there on the next start; accounts stay in app-data. The drive must be mounted in the Runtipi server, or the app won't start."
     },
     {
       "type": "random",
