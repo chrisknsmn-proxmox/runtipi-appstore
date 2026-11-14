@@ -25,7 +25,7 @@ services:
     image: nginx:1.30.6-alpine
     depends_on:
       openpencil-config:
-        condition: service_completed_successfully
+        condition: service_healthy
       openpencil-storage:
         condition: service_healthy
       openpencil-mail:
@@ -52,11 +52,11 @@ services:
     image: ghcr.io/chrisknsmn-proxmox/openpencil-cloud:0.17.0-beta.4-lan.1
     depends_on:
       openpencil-config:
-        condition: service_completed_successfully
+        condition: service_healthy
       openpencil-db:
         condition: service_healthy
       openpencil-bucket:
-        condition: service_completed_successfully
+        condition: service_healthy
     environment:
       OPENPENCIL_CLOUD_CONFIG: /etc/openpencil/openpencil-cloud.toml
       DATABASE_URL: postgresql://openpencil:${OPENPENCIL_DB_PASSWORD}@openpencil-db:5432/openpencil
@@ -94,7 +94,7 @@ services:
     image: chrislusf/seaweedfs:4.41
     depends_on:
       openpencil-config:
-        condition: service_completed_successfully
+        condition: service_healthy
     # Run weed directly, as root. The image's entrypoint chowns /data to its seaweed user
     # (uid 1000) and drops to it, which fails with "permission denied" on drives without Unix
     # ownership, such as NTFS or exFAT. The flags below are the ones that entrypoint adds.
@@ -118,7 +118,7 @@ services:
       timeout: 5s
       retries: 30
 
-  # One-shot: creates the bucket if it doesn't exist yet, then exits.
+  # Setup job: creates the bucket if it doesn't exist yet, then idles (see openpencil-config).
   openpencil-bucket:
     image: amazon/aws-cli:2.27.49
     restart: "no"
@@ -131,9 +131,20 @@ services:
       AWS_DEFAULT_REGION: us-east-1
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - >-
-        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects
-        || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
+      - |
+        set -eu
+        rm -f /tmp/done
+        aws --endpoint-url http://openpencil-storage:8333 s3api head-bucket --bucket openpencil-objects \
+          || aws --endpoint-url http://openpencil-storage:8333 s3api create-bucket --bucket openpencil-objects
+        touch /tmp/done
+        trap 'exit 0' TERM INT
+        sleep 2147483647 & wait
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/done"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 1h
 
   # Catches sign-up and password-reset email; read it at <app address>/mailpit/ (user: mail).
   openpencil-mail:
@@ -145,10 +156,22 @@ services:
       MP_DISABLE_VERSION_CHECK: "true"
       MP_SMTP_DISABLE_RDNS: "true"
 
-  # One-shot: writes the config files from the app's settings, then exits.
+  # Setup job: writes the config files from the app's settings (and fills an empty Storage folder),
+  # then idles. Runtipi shows an app as Running only while every one of its containers runs, so
+  # setup jobs that exit would make it show Stopped, and not restart it after a reboot. Each job
+  # touches /tmp/done when finished. Its healthcheck turns healthy on that file, and the services
+  # that need the job wait for service_healthy. A job that fails exits non-zero, which still stops
+  # the start.
   openpencil-config:
     image: busybox:1.37.0
     restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/done"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      # A first copy of a large bucket to a slow drive can take a while.
+      start_period: 1h
     environment:
       PUBLIC_URL: ${APP_PROTOCOL:-http}://${APP_DOMAIN:-${INTERNAL_IP}:${APP_PORT}}
       ENROLLMENT_MODE: ${OPENPENCIL_ENROLLMENT:-open}
@@ -163,6 +186,7 @@ services:
     command:
       - |
         set -eu
+        rm -f /tmp/done
         # The design files (the bucket) live in /storage/seaweedfs: under the Storage folder setting,
         # or in app-data's data folder (/appdata) when it's empty. Pointing the setting at a folder
         # with no files copies app-data's files there; app-data keeps its copy as a backup.
@@ -371,3 +395,6 @@ services:
         mv /config/seaweedfs/s3.json.new /config/seaweedfs/s3.json
         mv /config/nginx/default.conf.new /config/nginx/default.conf
         echo "Wrote config for $$PUBLIC_URL (sign-up: $$ENROLLMENT_MODE, storage: $${STORAGE_DIR:-app-data})"
+        touch /tmp/done
+        trap 'exit 0' TERM INT
+        sleep 2147483647 & wait
