@@ -1,0 +1,64 @@
+# RomM for Runtipi: a game library with an in-browser player.
+#
+# Games run in the player's browser (EmulatorJS, Ruffle and js-dos, compiled to WebAssembly),
+# not on the server. The server only stores the library and serves files, so it needs no GPU.
+# The EmulatorJS cores ship inside the RomM image, so playing needs no internet access.
+#
+# The library lives in ${ROOT_FOLDER_HOST}/media/data/roms, or under the "ROM library folder"
+# setting (ROMM_LIBRARY_DIR) when it's set, e.g. a folder on an HDD. RomM expects games in
+# <library>/roms/<platform>/ and BIOS files in <library>/bios/<platform>/.
+#
+# Hasheous identifies games by file hash and supplies cover art and descriptions with no API key.
+# The optional keys in the app settings add more metadata providers.
+x-runtipi:
+  schema_version: 2
+  overrides: []
+
+services:
+  romm:
+    image: ghcr.io/rommapp/romm:5.4.1
+    depends_on:
+      romm-db:
+        condition: service_healthy
+    environment:
+      - TZ=${TZ}
+      - DB_HOST=romm-db
+      - DB_NAME=romm
+      - DB_USER=romm
+      - DB_PASSWD=${ROMM_DB_PASSWORD}
+      - ROMM_AUTH_SECRET_KEY=${ROMM_AUTH_SECRET_KEY}
+      # Metadata providers that need no API key: Hasheous for consoles, Flashpoint for Flash games.
+      - HASHEOUS_API_ENABLED=true
+      - FLASHPOINT_API_ENABLED=true
+      - SCREENSCRAPER_USER=${ROMM_SCREENSCRAPER_USER:-}
+      - SCREENSCRAPER_PASSWORD=${ROMM_SCREENSCRAPER_PASSWORD:-}
+      - RETROACHIEVEMENTS_API_KEY=${ROMM_RETROACHIEVEMENTS_API_KEY:-}
+      - STEAMGRIDDB_API_KEY=${ROMM_STEAMGRIDDB_API_KEY:-}
+      - IGDB_CLIENT_ID=${ROMM_IGDB_CLIENT_ID:-}
+      - IGDB_CLIENT_SECRET=${ROMM_IGDB_CLIENT_SECRET:-}
+    volumes:
+      - ${ROMM_LIBRARY_DIR:-${ROOT_FOLDER_HOST}/media/data/roms}:/romm/library
+      - ${APP_DATA_DIR}/data/resources:/romm/resources
+      - ${APP_DATA_DIR}/data/assets:/romm/assets
+      - ${APP_DATA_DIR}/data/config:/romm/config
+      - ${APP_DATA_DIR}/data/redis:/redis-data
+    x-runtipi:
+      is_main: true
+      internal_port: 8080
+
+  romm-db:
+    image: mariadb:11.8.9
+    environment:
+      - MARIADB_ROOT_PASSWORD=${ROMM_DB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=romm
+      - MARIADB_USER=romm
+      - MARIADB_PASSWORD=${ROMM_DB_PASSWORD}
+    volumes:
+      - ${APP_DATA_DIR}/data/mysql:/var/lib/mysql
+    healthcheck:
+      # healthcheck.sh ships with the official MariaDB image.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s

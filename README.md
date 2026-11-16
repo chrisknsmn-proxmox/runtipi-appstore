@@ -18,6 +18,7 @@ The apps will then appear in the Runtipi app store alongside the official ones.
 | ---- | ----------- | ---- |
 | [Ignis](https://github.com/Nystik-gh/ignis) | Run Obsidian as a self-hosted web app. Not remote desktop, an actual web app. | 8287 |
 | [OpenPencil](https://github.com/open-pencil/open-pencil) | Self-hosted, browser-based design editor with cloud project storage (beta). | 8787 |
+| [RomM](https://github.com/rommapp/romm) | Self-hosted game library that plays retro games in your browser, on your own device. | 8178 |
 
 ## OpenPencil
 
@@ -78,6 +79,20 @@ sudo tar czf ~/openpencil-data-$(date +%F).tar.gz -C /mnt/hdd openpencil
 - Passkeys are disabled because they don't work on bare IP addresses.
 - The image doesn't include the `admin` CLI, so there's no deployment administrator. *Approval* sign-up mode is therefore not offered.
 - All requests reach OpenPencil from nginx, so sign-in rate limits apply to the whole server rather than per client.
+
+## RomM
+
+RomM runs as two containers: RomM itself (web app, player and background scans, with its own built-in Valkey) and MariaDB. Games are emulated in the player's browser by EmulatorJS, Ruffle and js-dos, all WebAssembly, so the server only stores and serves files. The EmulatorJS cores ship inside the RomM image, so playing doesn't depend on a CDN.
+
+**Install:** open RomM in the app store and install it. Nothing is required: the database passwords and auth secret are generated for you. The setup wizard on first visit creates the admin account.
+
+**Library:** `${ROOT_FOLDER_HOST}/media/data/roms` by default, or the **ROM library folder** setting (`ROMM_LIBRARY_DIR`), e.g. a folder on an HDD. The drive must be mounted inside the Runtipi host. RomM expects games in `<library>/roms/<platform>/` and BIOS files in `<library>/bios/<platform>/`, with RomM's [platform names](https://docs.romm.app/latest/platforms/supported-platforms/) as folder names. Everything else (covers, saves, states, config, the database) lives in `app-data/<store>/romm/data`.
+
+**Metadata:** Hasheous (consoles, hash matching) and Flashpoint (Flash games) are on and need no keys. ScreenScraper, RetroAchievements, SteamGridDB and IGDB are optional settings.
+
+**HTTPS:** PSP (PPSSPP), DOS (DOSBox Pure) and Windows 3.x/9x (js-dos) need `SharedArrayBuffer`, which browsers only expose to cross-origin isolated pages in a secure context. RomM's nginx already sends the COOP/COEP headers on the player pages, but over plain `http://<server-ip>:8178` those games show "HTTPS required". Expose the app on a domain with a valid certificate, or add the address to `chrome://flags/#unsafely-treat-insecure-origin-as-secure`. Everything else plays over plain HTTP.
+
+**Update:** bump the `romm` image tag and run `bun scripts/update-config.ts apps/romm/docker-compose.yml`. Read RomM's release notes first: database migrations only run forward.
 
 ## Development
 
