@@ -1,0 +1,99 @@
+{
+  "$schema": "https://schemas.runtipi.io/app-info.json",
+  "urn": "tipi://romm",
+  "name": "RomM",
+  "id": "romm",
+  "available": true,
+  "short_desc": "Self-hosted game library that plays retro games in your browser, on your own device.",
+  "author": "rommapp",
+  "port": 8178,
+  "categories": [
+    "gaming"
+  ],
+  "description": "RomM (ROM Manager) scans your game collection, adds cover art and descriptions, and lets you play games straight from the browser. Emulation runs on the device you play on (EmulatorJS, Ruffle and js-dos compiled to WebAssembly), so the server only stores and serves the files.",
+  "tipi_version": 1,
+  "version": "5.4.1",
+  "source": "https://github.com/rommapp/romm",
+  "website": "https://romm.app",
+  "exposable": true,
+  "supported_architectures": [
+    "arm64",
+    "amd64"
+  ],
+  "created_at": 1794839511679,
+  "updated_at": 1794839511679,
+  "dynamic_config": true,
+  "form_fields": [
+    {
+      "type": "text",
+      "label": "ROM library folder",
+      "env_variable": "ROMM_LIBRARY_DIR",
+      "required": false,
+      "max": 255,
+      "regex": "^(/[A-Za-z0-9._-]+)+$",
+      "pattern_error": "Use a full path such as /mnt/hdd/games: letters, numbers, dots, dashes and underscores, no spaces or trailing slash.",
+      "hint": "Where your games live, e.g. a folder on an HDD such as /mnt/hdd/games. Put games in <folder>/roms/<platform>/ (e.g. roms/snes/) and BIOS files in <folder>/bios/<platform>/. Leave empty to use Runtipi's media/data/roms folder. The drive must be mounted in the Runtipi server."
+    },
+    {
+      "type": "random",
+      "label": "Database password",
+      "env_variable": "ROMM_DB_PASSWORD",
+      "min": 32,
+      "required": true
+    },
+    {
+      "type": "random",
+      "label": "Database root password",
+      "env_variable": "ROMM_DB_ROOT_PASSWORD",
+      "min": 32,
+      "required": true
+    },
+    {
+      "type": "random",
+      "label": "Authentication secret",
+      "env_variable": "ROMM_AUTH_SECRET_KEY",
+      "min": 64,
+      "required": true
+    },
+    {
+      "type": "text",
+      "label": "ScreenScraper username",
+      "env_variable": "ROMM_SCREENSCRAPER_USER",
+      "required": false,
+      "hint": "Optional. A free screenscraper.fr account adds box art, screenshots and manuals."
+    },
+    {
+      "type": "password",
+      "label": "ScreenScraper password",
+      "env_variable": "ROMM_SCREENSCRAPER_PASSWORD",
+      "required": false
+    },
+    {
+      "type": "password",
+      "label": "RetroAchievements API key",
+      "env_variable": "ROMM_RETROACHIEVEMENTS_API_KEY",
+      "required": false,
+      "hint": "Optional. From retroachievements.org/settings. Shows achievement progress."
+    },
+    {
+      "type": "password",
+      "label": "SteamGridDB API key",
+      "env_variable": "ROMM_STEAMGRIDDB_API_KEY",
+      "required": false,
+      "hint": "Optional. Adds alternative, higher-quality cover art."
+    },
+    {
+      "type": "text",
+      "label": "IGDB client ID",
+      "env_variable": "ROMM_IGDB_CLIENT_ID",
+      "required": false,
+      "hint": "Optional. Needs a Twitch developer app. Adds related games and more screenshots."
+    },
+    {
+      "type": "password",
+      "label": "IGDB client secret",
+      "env_variable": "ROMM_IGDB_CLIENT_SECRET",
+      "required": false
+    }
+  ]
+}
